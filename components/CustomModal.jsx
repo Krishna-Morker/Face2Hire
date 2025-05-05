@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+
 export default function Modal({ submit,isOpen, onClose,time, setTime, selectedOptions, setSelectedOptions }) {
   if (!isOpen) return null;
   const options = ["Frontend", "Backend", "DevOps", "AI/ML", "Design", "React-js", ];
@@ -23,7 +24,7 @@ export default function Modal({ submit,isOpen, onClose,time, setTime, selectedOp
       <div className="bg-white w-1/2 h-[65vh] p-8 rounded-lg shadow-2xl flex flex-col justify-between">
         <div>
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold text-gray-800">Start Your Focus Session</h2>
+            <h2 className="text-2xl font-semibold text-gray-800">Start Your Interview Session</h2>
             <button
               onClick={onClose}
               className="text-gray-500 hover:text-red-500 text-2xl"

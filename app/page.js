@@ -3,21 +3,24 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import Modal from '@/components/CustomModal';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   // State to control the modal visibility
+  const [isSessionStarted, setIsSessionStarted] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [time, setTime] = useState(20);
+  const router = useRouter();
   const [selectedOptions, setSelectedOptions] = useState([]);
   const onClose = () => setIsModalOpen(false);
   const submit = () => {
     setIsModalOpen(false);
-    alert("Your interview has been scheduled");
+    router.push('/mock-session');
   };
 
   return (
     <>
-      <header className="text-3xl font-bold p-6 text-center text-white">Face2Hire</header>
+      <header className="text-3xl font-bold p-6 text-left text-white">Face2Hire</header>
       <Modal
         submit={submit}
         time={time}
@@ -65,10 +68,10 @@ export default function Home() {
       </div>
 
       {/* Why Use Face2Hire Section */}
-      <section className="bg-white py-16 px-8">
+      <section className="bg-white py-20 px-8">
         <h2 className="text-3xl font-semibold text-center text-gray-800 mb-8">Why Use Face2Hire?</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          <div className="bg-gray-100 p-6 rounded-lg shadow-lg text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-9">
+          <div className="bg-gray-100 p-10 rounded-lg shadow-lg text-center">
             <h3 className="text-xl font-semibold text-gray-800 mb-4">Improve Communication Skills</h3>
             <p className="text-gray-600">
               Face2Hire helps you enhance your communication skills by practicing mock interviews, getting feedback, and refining your delivery.
