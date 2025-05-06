@@ -1,23 +1,30 @@
 'use client';
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import axios from 'axios';
+
+const TOPICS = ['Operating Systems', 'OOP', 'DBMS', 'Computer Networks'];
 
 export default function VideoSession() {
   const [isSessionStarted, setIsSessionStarted] = useState(false);
   const [question, setQuestion] = useState('');
   const [userAnswer, setUserAnswer] = useState('');
   const [evaluation, setEvaluation] = useState('');
+  const [currentTopic, setCurrentTopic] = useState(null);
+  const [interviewStage, setInterviewStage] = useState('topic-check');
+  const [questionCount, setQuestionCount] = useState(0);
   const userVideoRef = useRef(null);
   const aiVideoRef = useRef(null);
-  const [correctAnswer, setCorrectAnswer] = useState('');
-  const [SpeechRecognition, setSpeechRecognition] = useState(null); // State for SpeechRecognition
+  const [conversationHistory, setConversationHistory] = useState([]);
 
   function close() {
     setIsSessionStarted(false);
     setQuestion('');
     setUserAnswer('');
     setEvaluation('');
-    setCorrectAnswer('');
+    setCurrentTopic(null);
+    setInterviewStage('topic-check');
+    setConversationHistory([]);
+    setQuestionCount(0);
   }
 
   const startSession = async () => {
@@ -28,145 +35,253 @@ export default function VideoSession() {
         userVideoRef.current.srcObject = stream;
       }
 
-      // Ask question from the API and get the correct answer
-      const res = await axios.post('/api/ask-question', {
-        question: "Ask any one question related to Operating system related to interviews. Give me output only question and question should be theory related and medium difficulty and question should not be numerical"
-      });
-      console.log(res.data);
-      setQuestion(res.data.answer); 
-      setCorrectAnswer(res.data.correctAnswer); // The correct answer from API
-      speakText(res.data.answer);   
-
+      // Initial greeting and topic check
+      const initialPrompt = `Hi there... Ready for a mock interview? Which topic would you like to discuss: ${TOPICS.join(', ')}?`;
+      setQuestion(initialPrompt);
+      speakText(initialPrompt);
+      setConversationHistory([{ role: 'assistant', content: initialPrompt }]);
     } catch (error) {
       console.error("Error accessing webcam:", error);
     }
   };
 
   const speakText = (text) => {
-    if (aiVideoRef.current) {
-      aiVideoRef.current.play();
-    }
+    if (aiVideoRef.current) aiVideoRef.current.play();
     const synth = window.speechSynthesis;
     const utter = new SpeechSynthesisUtterance(text);
     synth.speak(utter);
     utter.onend = () => {
       if (aiVideoRef.current) {
-        aiVideoRef.current.pause();  // Pause the video once speech ends
-        aiVideoRef.current.currentTime = 0;  // Optionally reset the video to the start
+        aiVideoRef.current.pause();
+        aiVideoRef.current.currentTime = 0;
       }
     };
   };
 
-  useEffect(() => {
-    // Check if the window and SpeechRecognition API are available
-    if (typeof window !== 'undefined' && 'SpeechRecognition' in window) {
-      setSpeechRecognition(window.SpeechRecognition || window.webkitSpeechRecognition);
-    }
-  }, []);
-
   const handleStartListening = () => {
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.interimResults = true;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      console.error('Speech Recognition not available in this browser.');
+      return;
+    }
+  
+    const recog = new SR();
+    recog.lang = 'en-US';
+    recog.interimResults = true;
+    recog.maxAlternatives = 1;
+    recog.continuous = true; // Add continuous mode
+  
+    let finalTranscript = '';
+    let silenceTimer;
+    const SILENCE_TIMEOUT = 10000; // 5 seconds of silence
+  
+    // Reset states when starting new recognition
+    setUserAnswer('');
+    setEvaluation('');
+  
+    recog.onresult = (event) => {
+      // Reset the silence timer on each result
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        recog.stop();
+      }, SILENCE_TIMEOUT);
+  
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result[0].transcript;
+        
+        if (result.isFinal) {
+          finalTranscript += transcript + ' ';
+        } else {
+          interim += transcript;
+        }
+      }
+      
+      // Update UI with both final and interim results
+      setUserAnswer(finalTranscript + interim);
+    };
+  
+    recog.onerror = (e) => {
+      console.error('Speech recognition error:', e.error);
+      clearTimeout(silenceTimer);
+    };
+  
+    recog.onend = async () => {
+      clearTimeout(silenceTimer);
+      
+      if (finalTranscript.trim()) {
+        await handleUserResponse(finalTranscript);
+      } else {
+        const retryPrompt = "I didn't hear your response. Please try speaking again.";
+        setQuestion(retryPrompt);
+        speakText(retryPrompt);
+      }
+    };
+  
+    // Start the initial silence timer
+    silenceTimer = setTimeout(() => {
+      recog.stop();
+    }, SILENCE_TIMEOUT);
+  
+    recog.start();
+  };
+  
+  
 
-      recognition.onstart = () => {
-        console.log('Speech recognition started');
-      };
-
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log('Recognized Text:', transcript);
-        setUserAnswer(transcript);
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-      };
-
-      recognition.onend = () => {
-        console.log('Speech recognition ended');
-        evaluateAnswer();
-      };
-
-      recognition.start();
-    } else {
-      console.error('Speech Recognition API is not available in this browser.');
+  const handleUserResponse = async (transcript) => {
+    if (interviewStage === 'finished') return;
+    if (interviewStage === 'topic-check') {
+      await handleTopicSelection(transcript);
+    } else if (interviewStage === 'question-answered') {
+      await evaluateAnswer(transcript);
     }
   };
+  
 
-  const evaluateAnswer = async () => {
+  const handleTopicSelection = async (transcript) => {
+
+    const topicSynonyms = {
+      "Operating Systems": ["operating systems", "operating system"],
+      OOP: ["oop"],
+      DBMS: ["dbms", "database management system", "databases"],
+      "Computer Networks": ["computer networks", "computer network", "networks", "network"]
+    };
+
+    let selectedTopic = null;
+    const lowerTranscript = transcript.toLowerCase();
+    for (const [topic, synonyms] of Object.entries(topicSynonyms)) {
+      if (synonyms.some((syn) => lowerTranscript.includes(syn))) {
+        selectedTopic = topic;
+        break;
+      }
+    }
+
+    if (!selectedTopic) {
+      const prompt = `Sorry, I didn't catch that. Please choose from: ${Object.keys(topicSynonyms).join(', ')}`;
+      setQuestion(prompt);
+      speakText(prompt);
+      return;
+    }
+
+    setCurrentTopic(selectedTopic);
+    setInterviewStage('question-answered');
+    setQuestionCount(0); // reset question counter for new topic
+
+    // Ask confirmation and first question
+    const confirmationPrompt = `Great choice! You selected ${selectedTopic}. Let's start with a basic question: `;
+    const questionPrompt = await generateQuestion(selectedTopic);
+    const fullPrompt = confirmationPrompt + questionPrompt;
+    setQuestion(fullPrompt);
+    speakText(fullPrompt);
+  };
+
+  const generateQuestion = async (topic) => {
     try {
-      // Send both the user's answer and the correct answer to the API for evaluation
-      const res = await axios.post('/api/evaluate-answer', { 
-        userAnswer,
-        correctAnswer
+      const res = await axios.post('/api/ask-question', {
+        question: `Ask a medium-easy theory question about ${topic}`
       });
-      console.log(res.data);
-
-      // Set the evaluation result (correct or incorrect)
-      setEvaluation(res.data.isCorrect ? "Correct!" : "Incorrect. Try again.");
+      return res.data.answer;
+    } catch (error) {
+      console.error("Error generating question:", error);
+      return "Let's start with a question...";
+    }
+  };
+  const evaluateAnswer = async (transcript) => {
+    try {
+     // console.log("Evaluating answer:", transcript, "for question:", question);
+      const res = await axios.post('/api/evaluate-answer', {
+        question,
+        userAnswer: transcript,
+        topic: currentTopic
+      });
+     // console.log("Evaluation response:", res.data);
+  
+     
+        setEvaluation("Let's Move on to next Question!");
+    
+  
+      const nextCount = questionCount + 1;
+      setQuestionCount(nextCount);
+  
+      // Change topic after 4 questions on the current topic.
+      if (nextCount >= 4) {
+        const topicPrompt = `You've answered 4 questions on ${currentTopic}. Let's choose another topic. Which topic would you like to discuss next: ${TOPICS.join(
+          ", "
+        )}?`;
+        setQuestion(topicPrompt);
+        speakText(topicPrompt);
+        setInterviewStage('topic-check');
+      } else {
+        // Ask next question on same topic
+        const nextQ = await generateQuestion(currentTopic);
+        const nextPrompt = `Next question: ${nextQ}`;
+        setQuestion(nextPrompt);
+        speakText(nextPrompt);
+      }
     } catch (error) {
       console.error("Error evaluating the answer:", error);
+      setEvaluation("Error evaluating your answer, please try again.");
     }
   };
+  
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-white">
-      {!isSessionStarted && (
+      {!isSessionStarted ? (
         <button
           onClick={startSession}
-          className="mb-6 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
+          className="mb-6 bg-blue-600 text-white px-6 py-3 rounded hover:bg-blue-700"
         >
           Start Session
         </button>
-      )}
-
-      {isSessionStarted && (
+      ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
-            {/* User Video */}
-            <div className="bg-gray-700 shadow rounded p-4 text-center">
-              <h2 className="text-lg font-semibold mb-2">You</h2>
+            <div className="bg-gray-700 p-4 rounded text-center">
+              <h2 className="mb-2">You</h2>
               <video ref={userVideoRef} autoPlay muted playsInline className="w-full rounded" />
             </div>
-
-            {/* AI Video */}
-            <div className="bg-gray-700 shadow rounded p-4 text-center">
-              <h2 className="text-lg font-semibold mb-2">AI Interviewer</h2>
+            <div className="bg-gray-700 p-4 rounded text-center">
+              <h2 className="mb-2">AI Interviewer</h2>
               <video
                 ref={aiVideoRef}
+                muted
                 controls={false}
-                className="w-full rounded"
                 src="/WIN_20240928_11_52_57_Pro.mp4"
+                className="w-full rounded"
               />
             </div>
           </div>
 
-          {/* AI Question */}
           <div className="mt-6 bg-gray-800 p-4 rounded shadow w-full max-w-xl text-center">
-            <h3 className="text-xl font-semibold mb-2">AI Question:</h3>
+            <h3 className="mb-2">AI Question:</h3>
             <p>{question}</p>
+            {currentTopic && <p className="mt-2 text-sm text-gray-400">Current topic: {currentTopic}</p>}
           </div>
 
-          {/* Start Listening Button */}
           <div className="mt-6 bg-gray-800 p-4 rounded shadow w-full max-w-xl text-center">
             <button
               onClick={handleStartListening}
-              className="mt-4 p-3 bg-blue-600 rounded"
+              className="mt-4 bg-green-600 px-4 py-2 rounded hover:bg-green-700"
             >
-              Speak Your Answer
+              🎤 Speak Your Answer
             </button>
+            <p className="mt-2">
+              Your answer: <span className="font-medium">{userAnswer}</span>
+            </p>
           </div>
 
-          {/* Evaluation Result */}
           {evaluation && (
-            <div className="mt-4 p-3 text-center text-lg font-semibold">
-              <p>{evaluation}</p>
+            <div className="mt-4 text-lg font-semibold animate-pulse">
+              {evaluation}
             </div>
           )}
 
-          <button className='flex justify-center m-4 p-3 bg-blue-600 rounded' onClick={close}>
+          <button
+            onClick={close}
+            className="mt-6 bg-red-600 px-4 py-2 rounded hover:bg-red-700"
+          >
             End Session
           </button>
         </>
