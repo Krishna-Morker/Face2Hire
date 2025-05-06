@@ -39,5 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
+# Ignore single file
 public/WIN_20240928_11_52_57_Pro.mp4
+
+# Or ignore all mp4s
+*.mp4
+
