@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import axios from 'axios';
 
+
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 const languageMap = {
@@ -26,7 +27,7 @@ const defaultCodes = {
   go: `package main\nimport "fmt"\nfunc main() {\n  var n int\n  fmt.Scan(&n)\n  fmt.Println(n * n)\n}`,
 };
 
-export default function CodeEditor() {
+export default function CodeEditor({question}) {
   const [language, setLanguage] = useState('python');
   const [theme, setTheme] = useState('vs-dark');
   const [code, setCode] = useState(defaultCodes['python']);
@@ -40,16 +41,9 @@ export default function CodeEditor() {
   const [isDragging, setIsDragging] = useState(false);
   const [isTestCaseVisible, setIsTestCaseVisible] = useState(true);
 
-  const publicTestCases = [
-    { input: '2\n', expectedOutput: '4' },
-    { input: '5\n', expectedOutput: '25' },
-    { input: '10\n', expectedOutput: '100' },
-  ];
+  const publicTestCases = question?.publicTestCases || [];
+  const hiddenTestCases = question?.hiddenTestCases || [];
 
-  const hiddenTestCases = [
-    { input: '12\n', expectedOutput: '144' },
-    { input: '100\n', expectedOutput: '10000' },
-  ];
 
   useEffect(() => {
     setCode(defaultCodes[language]);
@@ -79,7 +73,7 @@ export default function CodeEditor() {
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-RapidAPI-Key': 'YOUR_RAPIDAPI_KEY',
+            'X-RapidAPI-Key':  process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY, 
             'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
           },
         }
