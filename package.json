@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@heroui/modal": "^2.2.16",
+    "@monaco-editor/react": "^4.7.0",
     "@nextui-org/modal": "^2.2.7",
     "@nextui-org/react": "^2.6.11",
     "axios": "^1.9.0",
     "framer-motion": "^12.9.4",
     "link": "^2.1.1",
+    "mongoose": "^8.15.1",
     "next": "15.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
