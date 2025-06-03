@@ -79,6 +79,18 @@ export default function AddQuestionPage() {
   };
 
   const handleSubmit = async () => {
+    // Validate required fields
+    if (!title || !description || !totalTime || !totalScore) {
+      setMessage('❌ Please fill in all required fields.');
+      return;
+    }
+
+    // Validate totalTime and totalScore are numbers
+    if (isNaN(Number(totalTime)) || isNaN(Number(totalScore))) {
+      setMessage('❌ Total Time and Total Score must be numbers.');
+      return;
+    }
+
     const res = await fetch('/api/coding-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,9 +103,9 @@ export default function AddQuestionPage() {
         constraints,
         publicTestCases,
         hiddenTestCases,
-        totalTime,
+        totalTime: Number(totalTime), // Ensure it's a number
         hints,
-        totalScore,
+        totalScore: Number(totalScore), // Ensure it's a number
       }),
     });
 
@@ -117,6 +129,44 @@ export default function AddQuestionPage() {
     }
   };
 
+  const handleTotalTimeChange = (e) => {
+    const value = e.target.value;
+    // Allow only numbers and limit to a reasonable range
+    if (/^\d+$/.test(value) || value === '') {
+      const parsedValue = value === '' ? '' : Math.max(0, Math.min(1440, Number(value))); //Max 24 hours
+      setTotalTime(parsedValue);
+    }
+  };
+
+  const handleTotalScoreChange = (e) => {
+    const value = e.target.value;
+    // Allow only numbers and limit to a reasonable range
+    if (/^\d+$/.test(value) || value === '') {
+      const parsedValue = value === '' ? '' : Math.max(0, Math.min(1000, Number(value))); // Max 1000 score
+      setTotalScore(parsedValue);
+    }
+  };
+
+  const handleHintUnlockTimeChange = (index, e) => {
+      const value = e.target.value;
+      if (/^\d+$/.test(value) || value === '') {
+          const parsedValue = value === '' ? '' : Math.max(0, Math.min(1440, Number(value)));
+          const updatedHints = [...hints];
+          updatedHints[index].unlockTime = parsedValue;
+          setHints(updatedHints);
+      }
+  };
+
+  const handleHintScoreDeductionChange = (index, e) => {
+      const value = e.target.value;
+      if (/^\d+$/.test(value) || value === '') {
+          const parsedValue = value === '' ? '' : Math.max(0, Math.min(1000, Number(value)));
+          const updatedHints = [...hints];
+          updatedHints[index].scoreDeduction = parsedValue;
+          setHints(updatedHints);
+      }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-blue-100 flex items-center justify-center p-6">
       <div className="bg-white shadow-2xl rounded-2xl w-full max-w-3xl p-8 transition duration-300">
@@ -130,6 +180,7 @@ export default function AddQuestionPage() {
             onChange={(e) => setTitle(e.target.value)}
             className="w-full mt-1 p-3 border border-gray-300 rounded-lg"
             placeholder="Enter question title"
+            required
           />
         </div>
 
@@ -141,6 +192,7 @@ export default function AddQuestionPage() {
             onChange={(e) => setDescription(e.target.value)}
             className="w-full mt-1 p-3 border border-gray-300 rounded-lg h-28 resize-none"
             placeholder="Describe the problem"
+            required
           />
         </div>
 
@@ -207,9 +259,11 @@ export default function AddQuestionPage() {
           <input
             type="number"
             value={totalTime}
-            onChange={(e) => setTotalTime(parseInt(e.target.value))}
+            onChange={handleTotalTimeChange}
             className="w-full mt-1 p-3 border border-gray-300 rounded-lg"
             placeholder="Enter total time in minutes"
+            min="0"
+            max="1440"
           />
         </div>
 
@@ -219,9 +273,11 @@ export default function AddQuestionPage() {
           <input
             type="number"
             value={totalScore}
-            onChange={(e) => setTotalScore(parseInt(e.target.value))}
+            onChange={handleTotalScoreChange}
             className="w-full mt-1 p-3 border border-gray-300 rounded-lg"
             placeholder="Enter total score for the question"
+            min="0"
+            max="1000"
           />
         </div>
 
@@ -243,16 +299,20 @@ export default function AddQuestionPage() {
                 type="number"
                 placeholder="Unlock Time"
                 value={hint.unlockTime}
-                onChange={(e) => handleHintChange(i, 'unlockTime', parseInt(e.target.value))}
+                onChange={(e) => handleHintUnlockTimeChange(i, e)}
                 className="w-full p-2 border rounded-lg"
+                min="0"
+                max="1440"
               />
               <label className="block text-sm font-semibold text-gray-700">Score Deduction</label>
               <input
                 type="number"
                 placeholder="Score Deduction"
                 value={hint.scoreDeduction}
-                onChange={(e) => handleHintChange(i, 'scoreDeduction', parseInt(e.target.value))}
+                onChange={(e) => handleHintScoreDeductionChange(i, e)}
                 className="w-full p-2 border rounded-lg"
+                min="0"
+                max="1000"
               />
               {hints.length > 1 && (
                 <div className="flex justify-end">

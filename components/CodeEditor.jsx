@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import axios from 'axios';
-
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
@@ -27,7 +26,7 @@ const defaultCodes = {
   go: `package main\nimport "fmt"\nfunc main() {\n  var n int\n  fmt.Scan(&n)\n  fmt.Println(n * n)\n}`,
 };
 
-export default function CodeEditor({question}) {
+export default function CodeEditor({ question, updateScore }) {
   const [language, setLanguage] = useState('python');
   const [theme, setTheme] = useState('vs-dark');
   const [code, setCode] = useState(defaultCodes['python']);
@@ -40,10 +39,13 @@ export default function CodeEditor({question}) {
   const [isOutputVisible, setIsOutputVisible] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [isTestCaseVisible, setIsTestCaseVisible] = useState(true);
+  const [timeRemaining, setTimeRemaining] = useState(question?.totalTime * 60 || 3600);
+  const [totalScore, setTotalScore] = useState(question?.totalScore || 100);
+  const [prevScore, setPrevScore] = useState(0); // Track previous score
 
   const publicTestCases = question?.publicTestCases || [];
   const hiddenTestCases = question?.hiddenTestCases || [];
-
+  const timerRef = useRef(null);
 
   useEffect(() => {
     setCode(defaultCodes[language]);
@@ -53,6 +55,27 @@ export default function CodeEditor({question}) {
     const handleMouseUp = () => setIsDragging(false);
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  useEffect(() => {
+    if (question) {
+      setTimeRemaining(question.totalTime * 60);
+      setTotalScore(question.totalScore);
+    }
+  }, [question]);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setTimeRemaining((prevTime) => {
+        if (prevTime <= 0) {
+          clearInterval(timerRef.current);
+          return 0;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerRef.current);
   }, []);
 
   const onDrag = (e) => {
@@ -73,7 +96,7 @@ export default function CodeEditor({question}) {
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-RapidAPI-Key':  process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY, 
+            'X-RapidAPI-Key': process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY,
             'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
           },
         }
@@ -119,16 +142,32 @@ export default function CodeEditor({question}) {
     setStatus('Submitting...');
     setSelectedTab('all');
     const results = [];
+    let newScore = 0;
 
-    for (const test of hiddenTestCases) {
+    for (let i = 0; i < hiddenTestCases.length; i++) {
+      const test = hiddenTestCases[i];
       const result = await runCode(test);
       results.push(result);
+
+      if (result.status === 'Passed') {
+        newScore += question.totalScore / hiddenTestCases.length;
+      }
     }
+
+    // Update total score
+    //const currentScore = totalScore - prevScore + newScore;
+
+    // Update state with new score
+    updateScore(currentScore => currentScore + Math.floor(newScore)-prevScore);
+    setPrevScore(Math.floor(newScore));
 
     setOutputTabs(results);
     const passed = results.filter((r) => r.status === 'Passed').length;
     setStatus(`Hidden Test Cases: ${passed}/${hiddenTestCases.length} Passed`);
     setIsRunning(false);
+
+    clearInterval(timerRef.current);
+   
   };
 
   const addCustomTestCase = () => {
@@ -141,9 +180,14 @@ export default function CodeEditor({question}) {
     setCustomTestCases(updated);
   };
 
+  const formatTime = (timeInSeconds) => {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = timeInSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
   return (
     <div className="flex w-full h-screen overflow-hidden" onMouseMove={onDrag}>
-      {/* Code Editor Section */}
       <div className={`flex flex-col p-4 transition-all duration-300 ${isTestCaseVisible ? 'w-full md:w-2/3' : 'w-full'}`}>
         <div className="flex flex-wrap gap-2 mb-4 items-center">
           <select value={language} onChange={(e) => setLanguage(e.target.value)} className="p-2 border rounded cursor-pointer hover:shadow">
@@ -162,7 +206,7 @@ export default function CodeEditor({question}) {
           <button onClick={handleRunAll} disabled={isRunning} className="bg-blue-500 hover:bg-blue-600 cursor-pointer text-white px-4 py-2 rounded transition">
             Run All
           </button>
-          <button onClick={handleSubmit} disabled={isRunning} className="bg-green-500 hover:bg-green-600 cursor-pointer text-white px-4 py-2 rounded transition">
+          <button onClick={handleSubmit} disabled={isRunning || timeRemaining <= 0} className="bg-green-500 hover:bg-green-600 cursor-pointer text-white px-4 py-2 rounded transition">
             Submit
           </button>
           <button onClick={addCustomTestCase} className="bg-purple-500 hover:bg-purple-600 cursor-pointer text-white px-4 py-2 rounded transition">
@@ -188,7 +232,6 @@ export default function CodeEditor({question}) {
           />
         </div>
 
-        {/* Output Panel */}
         <div className="relative mt-2">
           <button
             onClick={() => setIsOutputVisible(!isOutputVisible)}
@@ -243,7 +286,6 @@ export default function CodeEditor({question}) {
         </div>
       </div>
 
-      {/* Test Case Section */}
       {isTestCaseVisible && (
         <div className="w-full md:w-1/3 p-4 overflow-y-auto border-l transition-all">
           <h3 className="font-bold text-lg mb-2">Test Cases</h3>
