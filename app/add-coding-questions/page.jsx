@@ -11,6 +11,9 @@ export default function AddQuestionPage() {
   const [constraints, setConstraints] = useState(['']);
   const [publicTestCases, setPublicTestCases] = useState([{ input: '', expectedOutput: '' }]);
   const [hiddenTestCases, setHiddenTestCases] = useState([{ input: '', expectedOutput: '' }]);
+  const [totalTime, setTotalTime] = useState(60);
+  const [hints, setHints] = useState([{ text: '', unlockTime: 10, scoreDeduction: 5 }]);
+  const [totalScore, setTotalScore] = useState(100);
   const [message, setMessage] = useState('');
 
   const handleTestCaseChange = (index, field, value, testCaseType) => {
@@ -59,6 +62,22 @@ export default function AddQuestionPage() {
     setConstraints(updated);
   };
 
+  const handleHintChange = (index, field, value) => {
+    const updatedHints = [...hints];
+    updatedHints[index][field] = value;
+    setHints(updatedHints);
+  };
+
+  const addHint = () => {
+    setHints([...hints, { text: '', unlockTime: 10, scoreDeduction: 5 }]);
+  };
+
+  const removeHint = (index) => {
+    const updatedHints = [...hints];
+    updatedHints.splice(index, 1);
+    setHints(updatedHints);
+  };
+
   const handleSubmit = async () => {
     const res = await fetch('/api/coding-questions', {
       method: 'POST',
@@ -72,6 +91,9 @@ export default function AddQuestionPage() {
         constraints,
         publicTestCases,
         hiddenTestCases,
+        totalTime,
+        hints,
+        totalScore,
       }),
     });
 
@@ -87,6 +109,9 @@ export default function AddQuestionPage() {
       setConstraints(['']);
       setPublicTestCases([{ input: '', expectedOutput: '' }]);
       setHiddenTestCases([{ input: '', expectedOutput: '' }]);
+      setTotalTime(60);
+      setHints([{ text: '', unlockTime: 10, scoreDeduction: 5 }]);
+      setTotalScore(100);
     } else {
       setMessage(`❌ Failed to add: ${data.error}`);
     }
@@ -150,7 +175,7 @@ export default function AddQuestionPage() {
                 value={c}
                 onChange={(e) => handleConstraintChange(i, e.target.value)}
                 placeholder={`Constraint ${i + 1}`}
-                className="flex-1 p-2 border rounded-lg"
+                className="flex-1 p-2 border border-gray-300 rounded-lg"
               />
               {constraints.length > 1 && (
                 <button onClick={() => removeConstraint(i)} className="text-red-500">❌</button>
@@ -174,6 +199,80 @@ export default function AddQuestionPage() {
             <option value="medium">Medium 🟡</option>
             <option value="hard">Hard 🔥</option>
           </select>
+        </div>
+
+        {/* Total Time */}
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-gray-700">Total Time (minutes)</label>
+          <input
+            type="number"
+            value={totalTime}
+            onChange={(e) => setTotalTime(parseInt(e.target.value))}
+            className="w-full mt-1 p-3 border border-gray-300 rounded-lg"
+            placeholder="Enter total time in minutes"
+          />
+        </div>
+
+        {/* Total Score */}
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-gray-700">Total Score</label>
+          <input
+            type="number"
+            value={totalScore}
+            onChange={(e) => setTotalScore(parseInt(e.target.value))}
+            className="w-full mt-1 p-3 border border-gray-300 rounded-lg"
+            placeholder="Enter total score for the question"
+          />
+        </div>
+
+        {/* Hints */}
+        <div className="mb-6">
+          <h4 className="text-md font-semibold text-gray-800 mb-3">Hints</h4>
+          {hints.map((hint, i) => (
+            <div key={i} className="bg-gray-50 p-4 rounded-lg shadow-sm border mb-3 flex flex-col gap-2">
+              <label className="block text-sm font-semibold text-gray-700">Hint Text</label>
+              <textarea
+                placeholder="Hint Text"
+                value={hint.text}
+                onChange={(e) => handleHintChange(i, 'text', e.target.value)}
+                className="w-full p-2 border rounded-lg resize-vertical"
+                rows="3"
+              />
+              <label className="block text-sm font-semibold text-gray-700">Unlock Time (minutes)</label>
+              <input
+                type="number"
+                placeholder="Unlock Time"
+                value={hint.unlockTime}
+                onChange={(e) => handleHintChange(i, 'unlockTime', parseInt(e.target.value))}
+                className="w-full p-2 border rounded-lg"
+              />
+              <label className="block text-sm font-semibold text-gray-700">Score Deduction</label>
+              <input
+                type="number"
+                placeholder="Score Deduction"
+                value={hint.scoreDeduction}
+                onChange={(e) => handleHintChange(i, 'scoreDeduction', parseInt(e.target.value))}
+                className="w-full p-2 border rounded-lg"
+              />
+              {hints.length > 1 && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => removeHint(i)}
+                    className="text-red-500 hover:text-red-700 transition text-xl"
+                    title="Remove hint"
+                  >
+                    ❌
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={addHint}
+            className="text-blue-600 hover:text-blue-800 font-semibold text-sm mt-1"
+          >
+            ➕ Add Hint
+          </button>
         </div>
 
         {/* Public Test Cases */}
