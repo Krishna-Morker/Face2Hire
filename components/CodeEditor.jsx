@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import axios from 'axios';
-
+import {useRouter} from 'next/navigation';
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 const languageMap = {
@@ -26,10 +26,11 @@ const defaultCodes = {
   go: `package main\nimport "fmt"\nfunc main() {\n  var n int\n  fmt.Scan(&n)\n  fmt.Println(n * n)\n}`,
 };
 
-export default function CodeEditor({ question, updateScore }) {
+export default function CodeEditor({ question, updateScore,currentScore }) {
   const [language, setLanguage] = useState('python');
   const [theme, setTheme] = useState('vs-dark');
   const [code, setCode] = useState(defaultCodes['python']);
+  const router = useRouter();
   const [status, setStatus] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [customTestCases, setCustomTestCases] = useState([]);
@@ -82,43 +83,59 @@ export default function CodeEditor({ question, updateScore }) {
     if (!isDragging) return;
     setOutputHeight((prev) => Math.max(100, prev - e.movementY));
   };
-
+  const toBase64 = (str) => Buffer.from(str, 'utf8').toString('base64');
   const runCode = async (testCase) => {
-    try {
-      const langId = languageMap[language];
-      const response = await axios.post(
-        'https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true',
-        {
-          source_code: code,
-          language_id: langId,
-          stdin: testCase.input,
+  try {
+    const langId = languageMap[language];
+
+    const response = await axios.post(
+      'https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=true&wait=true',
+      {
+        source_code: toBase64(code),
+        language_id: langId,
+        stdin: toBase64(testCase.input || ''),
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-RapidAPI-Key': process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY,
+          'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-RapidAPI-Key': process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY,
-            'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
-          },
-        }
-      );
-
-      const result = response.data;
-      const actualOutput = result.stdout?.trim();
-
-      if (actualOutput === testCase.expectedOutput) {
-        return { status: 'Passed', output: actualOutput };
-      } else if (result.stderr) {
-        return { status: 'Runtime Error', output: result.stderr };
-      } else if (result.compile_output) {
-        return { status: 'Compilation Error', output: result.compile_output };
-      } else {
-        return { status: 'Wrong Answer', output: actualOutput || 'No Output' };
       }
-    } catch (err) {
-      return { status: 'Error', output: err.message };
-    }
-  };
+    );
 
+    const result = response.data;
+
+    // Decode Base64 output
+    const decode = (text) =>
+      text ? Buffer.from(text, 'base64').toString('utf8').trim() : '';
+
+    if (result.compile_output) {
+      return { status: 'Compilation Error', output: decode(result.compile_output) };
+    } else if (result.stderr) {
+      return { status: 'Runtime Error', output: decode(result.stderr) };
+    }
+
+    const actualOutput = decode(result.stdout);
+    if (actualOutput === testCase.expectedOutput) {
+      return { status: 'Passed', output: actualOutput };
+    } else {
+      return { status: 'Wrong Answer', output: actualOutput || 'No Output' };
+    }
+
+  } catch (err) {
+    const data = err.response?.data;
+
+    if (data?.compile_output) {
+      return {
+        status: 'Compilation Error',
+        output: Buffer.from(data.compile_output, 'base64').toString('utf8'),
+      };
+    }
+
+    return { status: 'Error', output: err.message };
+  }
+};
   const handleRunAll = async () => {
     setIsRunning(true);
     setStatus('Running...');
@@ -137,38 +154,48 @@ export default function CodeEditor({ question, updateScore }) {
     setIsRunning(false);
   };
 
-  const handleSubmit = async () => {
-    setIsRunning(true);
-    setStatus('Submitting...');
-    setSelectedTab('all');
-    const results = [];
-    let newScore = 0;
+const handleSubmit = async () => {
+  setIsRunning(true);
+  setStatus('Submitting...');
+  setSelectedTab('all');
+  const results = [];
+  let newScore = 0;
 
-    for (let i = 0; i < hiddenTestCases.length; i++) {
-      const test = hiddenTestCases[i];
-      const result = await runCode(test);
-      results.push(result);
+  for (let i = 0; i < hiddenTestCases.length; i++) {
+    const test = hiddenTestCases[i];
+    const result = await runCode(test);
+    results.push(result);
 
-      if (result.status === 'Passed') {
-        newScore += question.totalScore / hiddenTestCases.length;
-      }
+    if (result.status === 'Passed') {
+      newScore += question.totalScore / hiddenTestCases.length;
     }
+  }
 
-    // Update total score
-    //const currentScore = totalScore - prevScore + newScore;
+  const finalScore = Math.floor(newScore);
+  let updatedScore = currentScore;
 
-    // Update state with new score
-    updateScore(currentScore => currentScore + Math.floor(newScore)-prevScore);
-    setPrevScore(Math.floor(newScore));
+  if (finalScore > prevScore) {
+    const delta = finalScore - prevScore;
+    updatedScore = currentScore + delta;
+    updateScore(updatedScore);
+    setPrevScore(finalScore);
+  }
 
-    setOutputTabs(results);
-    const passed = results.filter((r) => r.status === 'Passed').length;
-    setStatus(`Hidden Test Cases: ${passed}/${hiddenTestCases.length} Passed`);
-    setIsRunning(false);
+  setOutputTabs(results);
 
-    clearInterval(timerRef.current);
-   
-  };
+  const passed = results.filter((r) => r.status === 'Passed').length;
+  const allPassed = passed === hiddenTestCases.length;
+
+  setStatus(`Hidden Test Cases: ${passed}/${hiddenTestCases.length} Passed`);
+  setIsRunning(false);
+
+
+  if (allPassed) {
+    clearInterval(timerRef.current); // stop timer
+    router.push(`/thank-you?score=${updatedScore}&total=${totalScore}`);
+  }
+};
+
 
   const addCustomTestCase = () => {
     setCustomTestCases([...customTestCases, { input: '', expectedOutput: '' }]);

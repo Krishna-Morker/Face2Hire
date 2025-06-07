@@ -36,12 +36,14 @@ export default function QuestionPanel({ timeRemaining, deductScore }) {
     }
   }, [question, timeRemaining]);
 
-  const handleHintClick = (hint) => {
-    if (!displayedHints.find((h) => h.text === hint.text)) {
-      setDisplayedHints((prev) => [...prev, hint]);
-      deductScore(hint.scoreDeduction);
-    }
-  };
+const handleHintClick = (hint) => {
+  const alreadyDisplayed = displayedHints.find((h) => h.text === hint.text);
+  if (!alreadyDisplayed) {
+    setDisplayedHints((prev) => [...prev, hint]);
+    deductScore(hint.scoreDeduction); // ✅ Correct usage
+  }
+};
+
 
   if (loading) return <aside className="p-6">Loading...</aside>;
   if (!question) return <aside className="p-6 text-red-600">Question not found.</aside>;

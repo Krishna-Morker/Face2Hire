@@ -25,16 +25,15 @@ export default function EditorPage() {
     return `${min}:${sec}`;
   };
 
-  // Fetch question once
+  // Fetch question
   useEffect(() => {
     const fetchQuestion = async () => {
       try {
         const res = await fetch(`/api/coding-questions/${id}`);
         const data = await res.json();
         setQuestion(data);
-        setTimeLeft(data?.totalTime * 60 || 0);
+        setTimeLeft((data?.totalTime || 0) * 60);
         setTotalScore(data?.totalScore || 0);
-        setCurrentScore(0); // Set initial score to 0
       } catch (error) {
         console.error('Failed to fetch question:', error);
       }
@@ -43,13 +42,42 @@ export default function EditorPage() {
     if (id) fetchQuestion();
   }, [id]);
 
+  // Fullscreen & anti-cheat
+  useEffect(() => {
+    const enterFullscreen = async () => {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (err) {
+        console.warn('Could not enter fullscreen:', err);
+      }
+    };
+
+    const handleFullScreenChange = () => {
+      if (!document.fullscreenElement) {
+        alert('🚫 Fullscreen exited. Ending test.');
+        router.push(`/thank-you?score=${currentScore}&total=${totalScore}`);
+      }
+    };
+
+    const disableContextMenu = (e) => e.preventDefault();
+
+    enterFullscreen();
+    document.addEventListener('fullscreenchange', handleFullScreenChange);
+    document.addEventListener('contextmenu', disableContextMenu);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullScreenChange);
+      document.removeEventListener('contextmenu', disableContextMenu);
+    };
+  }, [currentScore, totalScore, router]);
+
   // Timer logic
   useEffect(() => {
     let timer;
     if (question) {
       if (timeLeft <= 0) {
         alert('⏰ Time is up! Submitting your code.');
-        router.push('/thank-you');
+        router.push(`/thank-you?score=${currentScore}&total=${totalScore}`);
         return;
       }
 
@@ -59,19 +87,19 @@ export default function EditorPage() {
     }
 
     return () => clearInterval(timer);
-  }, [timeLeft, question, router]);
+  }, [timeLeft, question, router, currentScore, totalScore]);
 
   // Deduct score when hint is used
   const deductScore = useCallback((deduction) => {
-    setCurrentScore((prevScore) => prevScore - deduction);
+    setCurrentScore((prev) => prev - deduction);
   }, []);
 
-  // Update score on passing test cases
-  const updateScore = useCallback((score) => {
-    setCurrentScore(score);
-  }, []);
+  // Update score on test case success
+  const updateScore = useCallback((newScore) => {
+    setCurrentScore(Math.min(newScore, totalScore));
+  }, [totalScore]);
 
-  // Drag resize logic
+  // Drag to resize logic
   const startDrag = () => (isDragging.current = true);
   const stopDrag = () => (isDragging.current = false);
   const onDrag = (e) => {
