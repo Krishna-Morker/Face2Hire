@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import axios from 'axios';
-
-
+import {useRouter} from 'next/navigation';
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
 const languageMap = {
@@ -27,10 +26,11 @@ const defaultCodes = {
   go: `package main\nimport "fmt"\nfunc main() {\n  var n int\n  fmt.Scan(&n)\n  fmt.Println(n * n)\n}`,
 };
 
-export default function CodeEditor({question}) {
+export default function CodeEditor({ question, updateScore,currentScore }) {
   const [language, setLanguage] = useState('python');
   const [theme, setTheme] = useState('vs-dark');
   const [code, setCode] = useState(defaultCodes['python']);
+  const router = useRouter();
   const [status, setStatus] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [customTestCases, setCustomTestCases] = useState([]);
@@ -40,10 +40,13 @@ export default function CodeEditor({question}) {
   const [isOutputVisible, setIsOutputVisible] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [isTestCaseVisible, setIsTestCaseVisible] = useState(true);
+  const [timeRemaining, setTimeRemaining] = useState(question?.totalTime * 60 || 3600);
+  const [totalScore, setTotalScore] = useState(question?.totalScore || 100);
+  const [prevScore, setPrevScore] = useState(0); // Track previous score
 
   const publicTestCases = question?.publicTestCases || [];
   const hiddenTestCases = question?.hiddenTestCases || [];
-
+  const timerRef = useRef(null);
 
   useEffect(() => {
     setCode(defaultCodes[language]);
@@ -55,47 +58,84 @@ export default function CodeEditor({question}) {
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
+  useEffect(() => {
+    if (question) {
+      setTimeRemaining(question.totalTime * 60);
+      setTotalScore(question.totalScore);
+    }
+  }, [question]);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setTimeRemaining((prevTime) => {
+        if (prevTime <= 0) {
+          clearInterval(timerRef.current);
+          return 0;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerRef.current);
+  }, []);
+
   const onDrag = (e) => {
     if (!isDragging) return;
     setOutputHeight((prev) => Math.max(100, prev - e.movementY));
   };
-
+  const toBase64 = (str) => Buffer.from(str, 'utf8').toString('base64');
   const runCode = async (testCase) => {
-    try {
-      const langId = languageMap[language];
-      const response = await axios.post(
-        'https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true',
-        {
-          source_code: code,
-          language_id: langId,
-          stdin: testCase.input,
+  try {
+    const langId = languageMap[language];
+
+    const response = await axios.post(
+      'https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=true&wait=true',
+      {
+        source_code: toBase64(code),
+        language_id: langId,
+        stdin: toBase64(testCase.input || ''),
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-RapidAPI-Key': process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY,
+          'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-RapidAPI-Key':  process.env.NEXT_PUBLIC_CODE_EDITOR_API_KEY, 
-            'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
-          },
-        }
-      );
-
-      const result = response.data;
-      const actualOutput = result.stdout?.trim();
-
-      if (actualOutput === testCase.expectedOutput) {
-        return { status: 'Passed', output: actualOutput };
-      } else if (result.stderr) {
-        return { status: 'Runtime Error', output: result.stderr };
-      } else if (result.compile_output) {
-        return { status: 'Compilation Error', output: result.compile_output };
-      } else {
-        return { status: 'Wrong Answer', output: actualOutput || 'No Output' };
       }
-    } catch (err) {
-      return { status: 'Error', output: err.message };
-    }
-  };
+    );
 
+    const result = response.data;
+
+    // Decode Base64 output
+    const decode = (text) =>
+      text ? Buffer.from(text, 'base64').toString('utf8').trim() : '';
+
+    if (result.compile_output) {
+      return { status: 'Compilation Error', output: decode(result.compile_output) };
+    } else if (result.stderr) {
+      return { status: 'Runtime Error', output: decode(result.stderr) };
+    }
+
+    const actualOutput = decode(result.stdout);
+    if (actualOutput === testCase.expectedOutput) {
+      return { status: 'Passed', output: actualOutput };
+    } else {
+      return { status: 'Wrong Answer', output: actualOutput || 'No Output' };
+    }
+
+  } catch (err) {
+    const data = err.response?.data;
+
+    if (data?.compile_output) {
+      return {
+        status: 'Compilation Error',
+        output: Buffer.from(data.compile_output, 'base64').toString('utf8'),
+      };
+    }
+
+    return { status: 'Error', output: err.message };
+  }
+};
   const handleRunAll = async () => {
     setIsRunning(true);
     setStatus('Running...');
@@ -114,22 +154,48 @@ export default function CodeEditor({question}) {
     setIsRunning(false);
   };
 
-  const handleSubmit = async () => {
-    setIsRunning(true);
-    setStatus('Submitting...');
-    setSelectedTab('all');
-    const results = [];
+const handleSubmit = async () => {
+  setIsRunning(true);
+  setStatus('Submitting...');
+  setSelectedTab('all');
+  const results = [];
+  let newScore = 0;
 
-    for (const test of hiddenTestCases) {
-      const result = await runCode(test);
-      results.push(result);
+  for (let i = 0; i < hiddenTestCases.length; i++) {
+    const test = hiddenTestCases[i];
+    const result = await runCode(test);
+    results.push(result);
+
+    if (result.status === 'Passed') {
+      newScore += question.totalScore / hiddenTestCases.length;
     }
+  }
 
-    setOutputTabs(results);
-    const passed = results.filter((r) => r.status === 'Passed').length;
-    setStatus(`Hidden Test Cases: ${passed}/${hiddenTestCases.length} Passed`);
-    setIsRunning(false);
-  };
+  const finalScore = Math.floor(newScore);
+  let updatedScore = currentScore;
+
+  if (finalScore > prevScore) {
+    const delta = finalScore - prevScore;
+    updatedScore = currentScore + delta;
+    updateScore(updatedScore);
+    setPrevScore(finalScore);
+  }
+
+  setOutputTabs(results);
+
+  const passed = results.filter((r) => r.status === 'Passed').length;
+  const allPassed = passed === hiddenTestCases.length;
+
+  setStatus(`Hidden Test Cases: ${passed}/${hiddenTestCases.length} Passed`);
+  setIsRunning(false);
+
+
+  if (allPassed) {
+    clearInterval(timerRef.current); // stop timer
+    router.push(`/thank-you?score=${updatedScore}&total=${totalScore}`);
+  }
+};
+
 
   const addCustomTestCase = () => {
     setCustomTestCases([...customTestCases, { input: '', expectedOutput: '' }]);
@@ -141,9 +207,14 @@ export default function CodeEditor({question}) {
     setCustomTestCases(updated);
   };
 
+  const formatTime = (timeInSeconds) => {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = timeInSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
   return (
     <div className="flex w-full h-screen overflow-hidden" onMouseMove={onDrag}>
-      {/* Code Editor Section */}
       <div className={`flex flex-col p-4 transition-all duration-300 ${isTestCaseVisible ? 'w-full md:w-2/3' : 'w-full'}`}>
         <div className="flex flex-wrap gap-2 mb-4 items-center">
           <select value={language} onChange={(e) => setLanguage(e.target.value)} className="p-2 border rounded cursor-pointer hover:shadow">
@@ -162,7 +233,7 @@ export default function CodeEditor({question}) {
           <button onClick={handleRunAll} disabled={isRunning} className="bg-blue-500 hover:bg-blue-600 cursor-pointer text-white px-4 py-2 rounded transition">
             Run All
           </button>
-          <button onClick={handleSubmit} disabled={isRunning} className="bg-green-500 hover:bg-green-600 cursor-pointer text-white px-4 py-2 rounded transition">
+          <button onClick={handleSubmit} disabled={isRunning || timeRemaining <= 0} className="bg-green-500 hover:bg-green-600 cursor-pointer text-white px-4 py-2 rounded transition">
             Submit
           </button>
           <button onClick={addCustomTestCase} className="bg-purple-500 hover:bg-purple-600 cursor-pointer text-white px-4 py-2 rounded transition">
@@ -188,7 +259,6 @@ export default function CodeEditor({question}) {
           />
         </div>
 
-        {/* Output Panel */}
         <div className="relative mt-2">
           <button
             onClick={() => setIsOutputVisible(!isOutputVisible)}
@@ -243,7 +313,6 @@ export default function CodeEditor({question}) {
         </div>
       </div>
 
-      {/* Test Case Section */}
       {isTestCaseVisible && (
         <div className="w-full md:w-1/3 p-4 overflow-y-auto border-l transition-all">
           <h3 className="font-bold text-lg mb-2">Test Cases</h3>

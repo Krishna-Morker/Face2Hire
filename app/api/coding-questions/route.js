@@ -15,6 +15,9 @@ export async function POST(req) {
       constraints,
       publicTestCases,
       hiddenTestCases,
+      totalTime,
+      hints,
+      totalScore,
     } = body;
 
     // Basic validation
@@ -22,11 +25,14 @@ export async function POST(req) {
       !title ||
       !description ||
       !Array.isArray(publicTestCases) ||
-      !Array.isArray(hiddenTestCases)
+      !Array.isArray(hiddenTestCases) ||
+      !Number.isInteger(totalTime) ||
+      !Array.isArray(hints) ||
+      !Number.isInteger(totalScore)
     ) {
       return new Response(
         JSON.stringify({
-          error: 'Missing required fields: title, description, publicTestCases, hiddenTestCases',
+          error: 'Missing required fields or invalid data types: title, description, publicTestCases, hiddenTestCases, totalTime, hints, totalScore',
         }),
         { status: 400 }
       );
@@ -41,6 +47,9 @@ export async function POST(req) {
       constraints,
       publicTestCases,
       hiddenTestCases,
+      totalTime,
+      hints,
+      totalScore,
     });
 
     return new Response(

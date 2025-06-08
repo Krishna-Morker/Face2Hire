@@ -1,4 +1,3 @@
-// models/Question.js
 import mongoose from 'mongoose';
 
 const TestCaseSchema = new mongoose.Schema({
@@ -10,7 +9,23 @@ const TestCaseSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-});
+}, { _id: false });
+
+const HintSchema = new mongoose.Schema({
+  text: {
+    type: String,
+    required: true,
+  },
+  unlockTime: {
+    type: Number,
+    required: true,
+  },
+  scoreDeduction: {
+    type: Number,
+    required: true,
+    default: 0, // Default score deduction for unlocking the hint
+  }
+}, { _id: false });
 
 const QuestionSchema = new mongoose.Schema(
   {
@@ -25,7 +40,7 @@ const QuestionSchema = new mongoose.Schema(
       default: 'easy',
     },
     language: {
-      type: [String], // e.g., ['cpp', 'python', 'js']
+      type: [String],
       default: ['js'],
     },
     inputFormat: {
@@ -47,6 +62,19 @@ const QuestionSchema = new mongoose.Schema(
     hiddenTestCases: {
       type: [TestCaseSchema],
       default: [],
+    },
+    totalTime: {
+      type: Number,
+      required: true,
+    },
+    hints: {
+      type: [HintSchema],
+      default: [],
+    },
+    totalScore: {
+      type: Number,
+      required: true,
+      default: 100, // Default total score for the question
     },
   },
   { timestamps: true }
