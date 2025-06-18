@@ -2,22 +2,31 @@ import axios from "axios";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
-  const { question, userAnswer } = await request.json();
-  // Updated prompt to instruct the AI to provide a single integer evaluation out of 10
-//   console.log("hiiiiii");
-  const st = `Question: ${question}\nUser Answer: ${userAnswer}\nPlease provide a single integer score out of 10 evaluating the user's answer. Do not include any additional text.`;
-  ///console.log("AI prompt:", st);
   try {
+    const { question, userAnswer, topic } = await request.json();
+
+    if (!question || !userAnswer || typeof question !== "string" || typeof userAnswer !== "string") {
+      return NextResponse.json(
+        { error: "Invalid input. 'question' and 'userAnswer' are required as strings." },
+        { status: 400 }
+      );
+    }
+
+    const prompt = `
+You are an expert technical interviewer for ${topic}.
+Evaluate the user's response to the following question:
+Question: ${question}
+User Answer: ${userAnswer}
+
+Give a single integer score from 0 to 10 based on correctness, completeness, and relevance. Do not explain. Just return the score only.
+`;
+
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyBBwwG514vBnWzhB1Xpd5coXa0hnLshLD0`,
       {
         contents: [
           {
-            parts: [
-              {
-                text: st,
-              },
-            ],
+            parts: [{ text: prompt.trim() }],
           },
         ],
       },
@@ -28,12 +37,26 @@ export async function POST(request) {
       }
     );
 
-    const answer = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer received";
-    //onsole.log("answer",answer)
-   console.log("AI response:", answer);
-    return NextResponse.json({ answer });
+    let rawAnswer = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    console.log("Raw AI score:", rawAnswer);
+
+    // Extract integer score (0–10) from rawAnswer
+    const scoreMatch = rawAnswer.match(/\b([0-9]|10)\b/);
+    const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
+
+    if (score === null || isNaN(score)) {
+      return NextResponse.json(
+        { error: "Could not extract a valid score from AI response." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ score });
   } catch (error) {
-    console.error("Error fetching AI question:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    console.error("Error evaluating answer:", error?.response?.data || error.message);
+    return NextResponse.json(
+      { error: "Internal Server Error during evaluation." },
+      { status: 500 }
+    );
   }
 }
